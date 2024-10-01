@@ -51,7 +51,7 @@ def generate_pure_data_patch(prompt, hex_code):
     response = ""
 
     # Generate the response from the local model using Ollama
-    for part in generate('patch-gen-4b', formatted_prompt, stream=True):
+    for part in generate('patch-gen', formatted_prompt, stream=True):
         # Append each part to the response variable
         response += part['response']
         print(part['response'], end='', flush=True)
