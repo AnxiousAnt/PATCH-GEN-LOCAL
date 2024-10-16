@@ -3,6 +3,7 @@ import re
 import random
 import string
 import pandas as pd
+import csv
 from ollama import generate
 from rich.console import Console
 from rich.prompt import Prompt
@@ -41,8 +42,29 @@ alpaca_prompt = """Below is an instruction that describes a task, paired with an
 ### Response:
 {}"""
 
+# Function to load valid objects from a CSV file
+def load_valid_objects(csv_file):
+    valid_objects = set()
+    with open(csv_file, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            valid_objects.add(row['objects'].strip())
+    return valid_objects
+
+# Function to validate a Pure Data patch for invalid objects
+def validate_pd_patch(pd_file, valid_objects):
+    invalid_objects = set()
+    with open(pd_file, 'r') as f:
+        content = f.read()
+        objects = re.findall(r'#X obj \d+ \d+ (\S+)(?:;|\s|$)', content)
+        for obj in objects:
+            obj = obj.rstrip(';')
+            if obj not in valid_objects:
+                invalid_objects.add(obj)
+    return invalid_objects
+
 # Function to generate a Pure Data patch using the Ollama model
-def generate_pure_data_patch(prompt, hex_code):
+def generate_pure_data_patch(prompt, hex_code, valid_objects):
     # Format the prompt
     instruction = "create a Pd patch that matches the following request."
     formatted_prompt = alpaca_prompt.format(instruction, prompt, "")
@@ -52,7 +74,6 @@ def generate_pure_data_patch(prompt, hex_code):
 
     # Generate the response from the local model using Ollama
     for part in generate('patch-gen', formatted_prompt, stream=True):
-        # Append each part to the response variable
         response += part['response']
         print(part['response'], end='', flush=True)
 
@@ -74,11 +95,19 @@ def generate_pure_data_patch(prompt, hex_code):
         with open(pd_file_name, "w") as pd_file:
             pd_file.write(pd_patch)
         console.print(f"[bright_green]Patch saved as '{pd_file_name}'[/bright_green]")
+
+        console.print(f"[bright_magenta]Validating patch (checking for invalid objects) ...[/bright_magenta]")
+        # Validate the patch for invalid objects
+        invalid_objects = validate_pd_patch(pd_file_name, valid_objects)
+        if invalid_objects:
+            console.print(f"[bright_red]WARNING: The generated patch might contain objects that don't exist, please retry with a different prompt.[/bright_red]")
+        else:
+            console.print("[bright_green]All objects in the Pd patch are valid.[/bright_green]")
     else:
         console.print(f"[bright_red]No patch found in the response.[/bright_red]")
 
 # Menu-based interface to accept user input
-def menu(prompts):
+def menu(prompts, valid_objects):
     console.print(Panel(Text("Welcome to the Patch Generator!", justify="center", style="bold bright_cyan")))
 
     counter = 1
@@ -98,14 +127,14 @@ def menu(prompts):
             prompt = Prompt.ask("[bright_cyan]Enter a prompt to generate a Pure Data patch:[/bright_cyan]")
             console.print("[bright_green]\nResponse:\n[/bright_green]")
             hex_code = generate_random_hex()
-            generate_pure_data_patch(prompt, hex_code)
+            generate_pure_data_patch(prompt, hex_code, valid_objects)
             counter += 1
         elif choice == "2":
             random_prompt = random.choice(prompts)
             console.print(f"[bright_cyan]Random prompt selected:[/bright_cyan] {random_prompt}")
             console.print("[bright_green]\nResponse:\n[/bright_green]")
             hex_code = generate_random_hex()
-            generate_pure_data_patch(random_prompt, hex_code)
+            generate_pure_data_patch(random_prompt, hex_code, valid_objects)
             counter += 1
         elif choice == "3":
             console.print(Panel(Text("Exiting the program. Goodbye!", style="bold bright_red"), expand=False))
@@ -116,6 +145,10 @@ if __name__ == "__main__":
     # Load the prompts from the local CSV file (for random)
     csv_file_path = "patch-gen-dataset-v0.8.7_prompts.csv"  
     prompts = load_prompts_from_csv(csv_file_path)
+
+    # Load the valid Pd objects from the CSV file
+    valid_objects_file = "objects.csv"
+    valid_objects = load_valid_objects(valid_objects_file)
     
     # Start the menu interface
-    menu(prompts)
+    menu(prompts, valid_objects)
